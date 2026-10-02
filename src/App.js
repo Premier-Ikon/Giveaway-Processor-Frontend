@@ -357,7 +357,7 @@ export default function App() {
         throw new Error(message)
       }
 
-      const payload = await response.json()
+      const payload = await readBundle(response)
       const csvBlob = await gzipBase64ToBlob(payload.csvGzipBase64)
       downloadBlob(csvBlob, payload.filename || downloadName())
       downloadBlob(
@@ -379,6 +379,14 @@ export default function App() {
       processButtonText.textContent = files.length > 1 ? 'Process and combine' : 'Process CSV'
       updateProcessButton()
     }
+  }
+
+  async function readBundle(response) {
+    const type = response.headers.get('content-type') || ''
+    if (type.includes('application/json')) return response.json()
+    const packed = await response.arrayBuffer()
+    const stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream('gzip'))
+    return JSON.parse(await new Response(stream).text())
   }
 
   async function gzipBase64ToBlob(encoded) {
