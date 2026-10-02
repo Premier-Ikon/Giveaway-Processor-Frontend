@@ -1,19 +1,16 @@
 import Papa from 'papaparse'
 
-const API_URL = 'https://us-central1-premier-ikon.cloudfunctions.net/processCSVHandler'
+const API_URL = import.meta.env.VITE_API_URL || 'https://us-central1-premier-ikon.cloudfunctions.net/processCSVHandler'
 
 export default function App() {
   const container = document.createElement('div')
   container.className = 'app-container'
 
-  let csvFile = null
-  let csvColumns = []
-  let selectedColumn = ''
-  let multiplier = 1
+  let files = []
+  let nextId = 1
   let outputFilename = ''
   let isProcessing = false
 
-  // Create UI
   container.innerHTML = `
     <div class="card">
       <div class="header">
@@ -27,11 +24,10 @@ export default function App() {
           </svg>
         </div>
         <h1>CSV Processor</h1>
-        <p class="subtitle">Generate giveaway entries from your CSV file</p>
+        <p class="subtitle">Build one giveaway list from one or more CSV files</p>
       </div>
 
       <div class="content">
-        <!-- File Upload Section -->
         <div class="section">
           <label class="section-label">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -39,10 +35,10 @@ export default function App() {
               <polyline points="17 8 12 3 7 8"></polyline>
               <line x1="12" y1="3" x2="12" y2="15"></line>
             </svg>
-            Upload CSV File
+            Upload CSV Files
           </label>
           <div class="file-upload-area" id="fileUploadArea">
-            <input type="file" id="fileInput" accept=".csv" style="display: none;">
+            <input type="file" id="fileInput" accept=".csv,text/csv" multiple style="display: none;">
             <div class="file-upload-content">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="upload-icon">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -50,82 +46,19 @@ export default function App() {
                 <line x1="12" y1="3" x2="12" y2="15"></line>
               </svg>
               <p class="upload-text">Click to upload or drag and drop</p>
-              <p class="upload-hint">CSV files only</p>
-            </div>
-            <div class="file-selected" id="fileSelected" style="display: none;">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                <polyline points="14 2 14 8 20 8"></polyline>
-                <line x1="9" y1="15" x2="15" y2="9"></line>
-                <line x1="9" y1="9" x2="15" y2="15"></line>
-              </svg>
-              <span id="fileName"></span>
-              <button class="remove-file" id="removeFile">Remove</button>
+              <p class="upload-hint">Add one or more CSV files. They are combined into a single download.</p>
             </div>
           </div>
         </div>
 
-        <!-- Column Selection -->
-        <div class="section" id="columnSection" style="display: none;">
-          <label class="section-label">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="8" y1="6" x2="21" y2="6"></line>
-              <line x1="8" y1="12" x2="21" y2="12"></line>
-              <line x1="8" y1="18" x2="21" y2="18"></line>
-              <line x1="3" y1="6" x2="3.01" y2="6"></line>
-              <line x1="3" y1="12" x2="3.01" y2="12"></line>
-              <line x1="3" y1="18" x2="3.01" y2="18"></line>
-            </svg>
-            Select Multiplier Column
-          </label>
-          <select id="columnSelect" class="select-input">
-            <option value="">Choose a column...</option>
-          </select>
-        </div>
+        <div id="fileList"></div>
 
-        <!-- Multiplier Input -->
-        <div class="section" id="multiplierSection" style="display: none;">
-          <label class="section-label">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" y1="8" x2="12" y2="16"></line>
-              <line x1="8" y1="12" x2="16" y2="12"></line>
-            </svg>
-            Multiplier
-          </label>
-          <input 
-            type="number" 
-            id="multiplierInput" 
-            class="number-input" 
-            value="1" 
-            min="0.1" 
-            step="0.1"
-            placeholder="1.0"
-          >
-          <p class="input-hint">Each row will generate (column value × multiplier) entries</p>
-        </div>
-
-        <!-- Output Filename Input -->
         <div class="section" id="filenameSection" style="display: none;">
-          <label class="section-label">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-              <polyline points="14 2 14 8 20 8"></polyline>
-              <line x1="12" y1="18" x2="12" y2="12"></line>
-              <line x1="9" y1="15" x2="15" y2="15"></line>
-            </svg>
-            Output Filename (Optional)
-          </label>
-          <input 
-            type="text" 
-            id="filenameInput" 
-            class="text-input" 
-            placeholder="processed_output.csv"
-          >
-          <p class="input-hint">Leave empty to use default filename. .csv extension will be added automatically.</p>
+          <label class="section-label">Output Filename (Optional)</label>
+          <input type="text" id="filenameInput" class="text-input" placeholder="processed_output.csv">
+          <p class="input-hint" id="combinedHint">Choose the same number of export columns on every file. The first file's column names become the header of the combined CSV.</p>
         </div>
 
-        <!-- Process Button -->
         <button class="process-button" id="processButton" disabled>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="23 4 23 10 17 10"></polyline>
@@ -135,226 +68,334 @@ export default function App() {
           <span id="processButtonText">Process CSV</span>
         </button>
 
-        <!-- Loading State -->
         <div class="loading-state" id="loadingState" style="display: none;">
           <div class="spinner"></div>
-          <p>Processing your file...</p>
+          <p>Processing your files. Large exports can take a minute.</p>
         </div>
 
-        <!-- Success State -->
         <div class="success-state" id="successState" style="display: none;">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
             <polyline points="22 4 12 14.01 9 11.01"></polyline>
           </svg>
           <h3>Success!</h3>
-          <p>Your processed CSV is ready to download</p>
+          <p>Your combined CSV is ready to download</p>
         </div>
       </div>
     </div>
   `
 
-  // Get references
   const fileInput = container.querySelector('#fileInput')
   const fileUploadArea = container.querySelector('#fileUploadArea')
-  const fileSelected = container.querySelector('#fileSelected')
-  const fileName = container.querySelector('#fileName')
-  const removeFileBtn = container.querySelector('#removeFile')
-  const columnSection = container.querySelector('#columnSection')
-  const columnSelect = container.querySelector('#columnSelect')
-  const multiplierSection = container.querySelector('#multiplierSection')
-  const multiplierInput = container.querySelector('#multiplierInput')
+  const fileList = container.querySelector('#fileList')
   const filenameSection = container.querySelector('#filenameSection')
   const filenameInput = container.querySelector('#filenameInput')
+  const combinedHint = container.querySelector('#combinedHint')
   const processButton = container.querySelector('#processButton')
   const processButtonText = container.querySelector('#processButtonText')
   const loadingState = container.querySelector('#loadingState')
   const successState = container.querySelector('#successState')
 
-  // File upload handlers
   fileUploadArea.addEventListener('click', () => fileInput.click())
-  fileUploadArea.addEventListener('dragover', (e) => {
-    e.preventDefault()
+  fileUploadArea.addEventListener('dragover', (event) => {
+    event.preventDefault()
     fileUploadArea.classList.add('dragover')
   })
   fileUploadArea.addEventListener('dragleave', () => {
     fileUploadArea.classList.remove('dragover')
   })
-  fileUploadArea.addEventListener('drop', (e) => {
-    e.preventDefault()
+  fileUploadArea.addEventListener('drop', (event) => {
+    event.preventDefault()
     fileUploadArea.classList.remove('dragover')
-    const files = e.dataTransfer.files
-    if (files.length > 0 && files[0].type === 'text/csv') {
-      handleFileSelect(files[0])
-    }
+    addFiles(event.dataTransfer.files)
   })
-
-  fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-      handleFileSelect(e.target.files[0])
-    }
-  })
-
-  removeFileBtn.addEventListener('click', (e) => {
-    e.stopPropagation()
-    resetFile()
-  })
-
-  // Handle file selection
-  function handleFileSelect(file) {
-    csvFile = file
-    fileName.textContent = file.name
-    fileUploadArea.querySelector('.file-upload-content').style.display = 'none'
-    fileSelected.style.display = 'flex'
-    
-    // Parse CSV to get columns
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        if (results.data.length > 0) {
-          csvColumns = Object.keys(results.data[0])
-          populateColumnSelect()
-          columnSection.style.display = 'block'
-        }
-      },
-      error: (error) => {
-        console.error('Error parsing CSV:', error)
-        alert('Error reading CSV file. Please make sure it\'s a valid CSV file.')
-        resetFile()
-      }
-    })
-  }
-
-  function populateColumnSelect() {
-    columnSelect.innerHTML = '<option value="">Choose a column...</option>'
-    csvColumns.forEach(col => {
-      const option = document.createElement('option')
-      option.value = col
-      option.textContent = col
-      columnSelect.appendChild(option)
-    })
-  }
-
-  function resetFile() {
-    csvFile = null
-    csvColumns = []
-    selectedColumn = ''
+  fileInput.addEventListener('change', (event) => {
+    addFiles(event.target.files)
     fileInput.value = ''
-    fileUploadArea.querySelector('.file-upload-content').style.display = 'flex'
-    fileSelected.style.display = 'none'
-    columnSection.style.display = 'none'
-    multiplierSection.style.display = 'none'
-    filenameSection.style.display = 'none'
-    processButton.disabled = true
-    columnSelect.value = ''
-    multiplierInput.value = '1'
-    filenameInput.value = ''
-    outputFilename = ''
-    hideAllStates()
+  })
+  filenameInput.addEventListener('input', (event) => {
+    outputFilename = event.target.value.trim()
+  })
+  processButton.addEventListener('click', processFiles)
+
+  function addFiles(fileListInput) {
+    const selected = Array.from(fileListInput || []).filter(isCsvFile)
+    if (selected.length === 0) {
+      if (fileListInput && fileListInput.length) {
+        alert('Please upload CSV files only.')
+      }
+      return
+    }
+
+    selected.forEach((file) => {
+      const record = {
+        id: nextId++,
+        file,
+        columns: [],
+        entryColumn: '',
+        multiplier: 1,
+        exportColumns: [],
+        ready: false,
+        error: '',
+      }
+      files.push(record)
+      Papa.parse(file, {
+        header: true,
+        preview: 1,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const current = files.find((item) => item.id === record.id)
+          if (!current) return
+          current.columns = results.meta.fields || []
+          current.ready = current.columns.length > 0
+          current.error = current.ready ? '' : 'No columns found in this CSV.'
+          renderFiles()
+        },
+        error: () => {
+          const current = files.find((item) => item.id === record.id)
+          if (!current) return
+          current.ready = false
+          current.error = 'Could not read this CSV.'
+          renderFiles()
+        },
+      })
+    })
+    renderFiles()
   }
 
-  // Column selection
-  columnSelect.addEventListener('change', (e) => {
-    selectedColumn = e.target.value
-    if (selectedColumn) {
-      multiplierSection.style.display = 'block'
-      filenameSection.style.display = 'block'
-      updateProcessButton()
-    } else {
-      multiplierSection.style.display = 'none'
-      filenameSection.style.display = 'none'
-      processButton.disabled = true
-    }
-  })
+  function isCsvFile(file) {
+    const name = (file.name || '').toLowerCase()
+    return name.endsWith('.csv') || file.type === 'text/csv' || file.type === 'application/vnd.ms-excel'
+  }
 
-  // Multiplier input
-  multiplierInput.addEventListener('input', (e) => {
-    multiplier = parseFloat(e.target.value) || 1
+  function renderFiles() {
+    fileList.innerHTML = ''
+    files.forEach((record, index) => {
+      const card = document.createElement('article')
+      card.className = 'file-card'
+      card.innerHTML = `
+        <div class="file-card-header">
+          <div>
+            <p class="file-card-kicker">File ${index + 1}</p>
+            <p class="file-card-name"></p>
+          </div>
+          <button type="button" class="remove-file">Remove</button>
+        </div>
+        <p class="file-card-error"></p>
+        <div class="file-card-fields"></div>
+      `
+      card.querySelector('.file-card-name').textContent = record.file.name
+      const error = card.querySelector('.file-card-error')
+      const fields = card.querySelector('.file-card-fields')
+      if (!record.ready) {
+        error.textContent = record.error || 'Reading columns...'
+        fields.style.display = 'none'
+      } else {
+        error.style.display = 'none'
+        fields.append(
+          fieldBlock('Entries based on', entrySelect(record)),
+          fieldBlock('Multiplier', multiplierField(record), 'Each row becomes (column value × multiplier) entries.'),
+          fieldBlock('Columns to export', exportFields(record), 'Check only what you need, such as email. The order you check them is the column order in the download.'),
+        )
+      }
+      card.querySelector('.remove-file').addEventListener('click', () => {
+        files = files.filter((item) => item.id !== record.id)
+        renderFiles()
+      })
+      fileList.appendChild(card)
+    })
+
+    const hasFiles = files.length > 0
+    filenameSection.style.display = hasFiles ? 'block' : 'none'
+    processButtonText.textContent = files.length > 1 ? 'Process and combine' : 'Process CSV'
+    updateCombinedHint()
     updateProcessButton()
-  })
+  }
 
-  // Filename input
-  filenameInput.addEventListener('input', (e) => {
-    outputFilename = e.target.value.trim()
-  })
+  function fieldBlock(label, control, hint) {
+    const block = document.createElement('div')
+    block.className = 'field-block'
+    const title = document.createElement('p')
+    title.className = 'field-label'
+    title.textContent = label
+    block.append(title, control)
+    if (hint) {
+      const note = document.createElement('p')
+      note.className = 'input-hint'
+      note.textContent = hint
+      block.appendChild(note)
+    }
+    return block
+  }
+
+  function entrySelect(record) {
+    const select = document.createElement('select')
+    select.className = 'select-input'
+    const placeholder = document.createElement('option')
+    placeholder.value = ''
+    placeholder.textContent = 'Choose a column...'
+    select.appendChild(placeholder)
+    record.columns.forEach((column) => {
+      const option = document.createElement('option')
+      option.value = column
+      option.textContent = column
+      select.appendChild(option)
+    })
+    select.value = record.entryColumn
+    select.addEventListener('change', () => {
+      record.entryColumn = select.value
+      updateProcessButton()
+    })
+    return select
+  }
+
+  function multiplierField(record) {
+    const input = document.createElement('input')
+    input.type = 'number'
+    input.className = 'number-input'
+    input.min = '0.1'
+    input.step = '0.1'
+    input.value = String(record.multiplier)
+    input.addEventListener('input', () => {
+      record.multiplier = parseFloat(input.value) || 0
+      updateProcessButton()
+    })
+    return input
+  }
+
+  function exportFields(record) {
+    const list = document.createElement('div')
+    list.className = 'column-checks'
+    record.columns.forEach((column) => {
+      const label = document.createElement('label')
+      label.className = 'column-check'
+      const checkbox = document.createElement('input')
+      checkbox.type = 'checkbox'
+      checkbox.checked = record.exportColumns.includes(column)
+      const badge = document.createElement('span')
+      badge.className = 'order-badge'
+      const name = document.createElement('span')
+      name.textContent = column
+      const order = record.exportColumns.indexOf(column)
+      badge.textContent = order === -1 ? '' : String(order + 1)
+      badge.hidden = order === -1
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          record.exportColumns.push(column)
+        } else {
+          record.exportColumns = record.exportColumns.filter((item) => item !== column)
+        }
+        renderFiles()
+      })
+      label.append(checkbox, badge, name)
+      list.appendChild(label)
+    })
+    return list
+  }
+
+  function updateCombinedHint() {
+    const first = files.find((record) => record.exportColumns.length > 0)
+    if (!first) {
+      combinedHint.textContent = 'Choose the same number of export columns on every file. The first file\'s column names become the header of the combined CSV.'
+      return
+    }
+    const counts = files.filter((record) => record.ready).map((record) => record.exportColumns.length)
+    const mismatch = counts.some((count) => count !== first.exportColumns.length)
+    const header = first.exportColumns.join(', ')
+    combinedHint.textContent = mismatch
+      ? `Each file needs ${first.exportColumns.length} export column${first.exportColumns.length === 1 ? '' : 's'} so they can be combined. The download header will be: ${header}.`
+      : `Combined columns: ${header}`
+  }
+
+  function readyToProcess() {
+    if (files.length === 0 || files.some((record) => !record.ready)) return false
+    if (files.some((record) => !record.entryColumn || !(record.multiplier > 0))) return false
+    const expected = files[0].exportColumns.length
+    if (expected === 0) return false
+    return files.every((record) => record.exportColumns.length === expected)
+  }
 
   function updateProcessButton() {
-    processButton.disabled = !(csvFile && selectedColumn && multiplier > 0)
+    processButton.disabled = isProcessing || !readyToProcess()
   }
 
-  // Process button
-  processButton.addEventListener('click', async () => {
-    if (isProcessing) return
-    
+  async function processFiles() {
+    if (isProcessing || !readyToProcess()) return
+
     isProcessing = true
-    hideAllStates()
+    hideStatus()
     loadingState.style.display = 'flex'
     processButton.disabled = true
     processButtonText.textContent = 'Processing...'
 
     try {
       const formData = new FormData()
-      formData.append('file', csvFile)
-      formData.append('multiplierColumn', selectedColumn)
-      formData.append('multiplier', multiplier.toString())
-      if (outputFilename) {
-        formData.append('outputFilename', outputFilename)
-      }
+      const jobs = files.map((record) => ({
+        filename: record.file.name,
+        multiplierColumn: record.entryColumn,
+        multiplier: record.multiplier,
+        exportColumns: record.exportColumns,
+      }))
+      files.forEach((record) => formData.append('files', record.file))
+      formData.append('jobs', JSON.stringify(jobs))
+      if (outputFilename) formData.append('outputFilename', outputFilename)
 
       const response = await fetch(API_URL, {
         method: 'POST',
-        body: formData
+        body: formData,
       })
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to process CSV')
+        let message = `Failed to process CSV (${response.status})`
+        try {
+          const error = await response.json()
+          message = error.message || error.error || message
+        } catch {
+          // Platform errors (timeouts, size limits) are not JSON.
+        }
+        throw new Error(message)
       }
 
-      // Get CSV blob
       const blob = await response.blob()
-      
-      // Create download link
       const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      // Use custom filename if provided, otherwise use default
-      const downloadFilename = outputFilename 
-        ? (outputFilename.endsWith('.csv') ? outputFilename : outputFilename + '.csv')
-        : `processed_${csvFile.name.replace('.csv', '')}_output.csv`
-      a.download = downloadFilename
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = downloadName()
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
 
-      // Show success
       loadingState.style.display = 'none'
       successState.style.display = 'flex'
-      
-      // Reset after 3 seconds
       setTimeout(() => {
         successState.style.display = 'none'
-        resetFile()
       }, 3000)
-
     } catch (error) {
       console.error('Error:', error)
       alert(`Error: ${error.message}`)
       loadingState.style.display = 'none'
     } finally {
       isProcessing = false
-      processButton.disabled = false
-      processButtonText.textContent = 'Process CSV'
+      processButtonText.textContent = files.length > 1 ? 'Process and combine' : 'Process CSV'
+      updateProcessButton()
     }
-  })
+  }
 
-  function hideAllStates() {
+  function downloadName() {
+    if (outputFilename) {
+      return outputFilename.endsWith('.csv') ? outputFilename : `${outputFilename}.csv`
+    }
+    if (files.length === 1) {
+      return `processed_${files[0].file.name.replace(/\.csv$/i, '')}_output.csv`
+    }
+    return 'combined_entries.csv'
+  }
+
+  function hideStatus() {
     loadingState.style.display = 'none'
     successState.style.display = 'none'
   }
 
   return container
 }
-
