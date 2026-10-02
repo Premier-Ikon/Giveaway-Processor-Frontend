@@ -1,6 +1,6 @@
 import Papa from 'papaparse'
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://us-central1-premier-ikon.cloudfunctions.net/processCSVHandler'
+const API_URL = 'https://us-central1-premier-ikon.cloudfunctions.net/processCSVHandler'
 
 export default function App() {
   const container = document.createElement('div')
@@ -79,7 +79,7 @@ export default function App() {
             <polyline points="22 4 12 14.01 9 11.01"></polyline>
           </svg>
           <h3>Success!</h3>
-          <p>Your combined CSV is ready to download</p>
+          <p>Your entry file and shareable dashboard are downloading</p>
         </div>
       </div>
     </div>
@@ -338,6 +338,7 @@ export default function App() {
       }))
       files.forEach((record) => formData.append('files', record.file))
       formData.append('jobs', JSON.stringify(jobs))
+      formData.append('bundle', '1')
       if (outputFilename) formData.append('outputFilename', outputFilename)
 
       const response = await fetch(API_URL, {
@@ -356,15 +357,13 @@ export default function App() {
         throw new Error(message)
       }
 
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = downloadName()
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
+      const payload = await response.json()
+      const csvBlob = await gzipBase64ToBlob(payload.csvGzipBase64)
+      downloadBlob(csvBlob, payload.filename || downloadName())
+      downloadBlob(
+        new Blob([payload.dashboardHtml], { type: 'text/html' }),
+        payload.dashboardFilename || 'giveaway-dashboard.html',
+      )
 
       loadingState.style.display = 'none'
       successState.style.display = 'flex'
@@ -380,6 +379,27 @@ export default function App() {
       processButtonText.textContent = files.length > 1 ? 'Process and combine' : 'Process CSV'
       updateProcessButton()
     }
+  }
+
+  async function gzipBase64ToBlob(encoded) {
+    const binary = atob(encoded)
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index)
+    }
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
+    return new Response(stream).blob()
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
   }
 
   function downloadName() {
